@@ -1,113 +1,102 @@
 meta:
-  id: nsbmd
-  file-extension: nsbmd
+  id: nsbmdlz
+  file-extension: nsbmdlz
   endian: le
   encoding: UTF-8
+  ks-opaque-types: true
 seq:
-  - id: nitro_header
-    type: nitro_header
-  - id: unknown1
-    type: unknown
-    size: 4
-    if: _io.pos < nitro_header.mdl0_offset
-  - id: mdl0_header
-    type: block_header
-  - id: section_header
-    type: section_header
-  - id: unknown_subsection_header
-    type: unknown_subsection_header
-  - id: unknown
-    type: u4
-    repeat: expr
-    repeat-expr: section_header.object_count
-  - id: data_subsection_header
-    type: data_subsection_header
-  - id: model1_offset
-    type: u4
-    repeat: expr
-    repeat-expr: section_header.object_count
-  - id: name_subsection
-    type: name_subsection
-    repeat: expr
-    repeat-expr: section_header.object_count
-  - id: model_section_list
-    type: model_section_list
+  - id: nitro_file
+    type: nitro_file
+    
 types:
-  nitro_header:
+  nitro_file:
     seq:
       - id: nitro_header_text
         contents: 'BMD0'
-      - id: unknown1
-        type: unknown
-        size: 12
-      - id: mdl0_offset
+      - id: magic_stamp
         type: u4
-  block_header:
-    seq:
-      - id: block_header
-        type: str
-        size: 4
-      - id: block_len
+      - id: file_len
         type: u4
-  section_header:
-    seq:
-      - id: dummy_zero
-        type: u1 #dummy zero
-      - id: object_count
-        type: u1
-      - id: header_len
+      - id: header_size
         type: u2
-  unknown_subsection_header:
-    seq:
-      - id: subheader_len
+      - id: block_count
         type: u2
-      - id: subsection_len
-        type: u2
-      - id: unknown_constant1
-        contents: [0x7f, 0x01, 0x00, 0x00]
-  data_subsection_header:
-    seq:
-      - id: data_entry_size
-        type: u2
-      - id: subsection_len
-        type: u2
-  name_subsection: #no header for this one
-    seq:
-      - id: name
-        type: str
-        size: 16
-  model_section_list:
-    seq:
-      - id: model_section_inst 
-        type: model_section_inst(_index)
+      - id: block_offsets
+        type: u4
         repeat: expr
-        repeat-expr: _parent.section_header.object_count
-  model_section_inst:
+        repeat-expr: block_count
+      - id: block_instance
+        type: block_instance(_index)
+        repeat: expr
+        repeat-expr: block_count
+
+  block_instance:
     params:
-      - id: i
+      - id: index
         type: u4
     instances:
-      model_section:
-        type: model_section
-        pos: _root.model1_offset[i] + _root.nitro_header.mdl0_offset
+      some_block:
+        type: some_block
+        pos: _parent.block_offsets[index]
+
+  some_block:
+    seq:
+      - id: block_start
+        type: pos_cache
+      - id: block_header
+        type: block_header
+      - id: block_body
+        type:
+          switch-on: block_header.block_header
+          cases:
+            '"MDL0"': mdl0_block
+            '"TEX0"': tex0_block
+
+  mdl0_block:
+    seq:
+      - id: section_header
+        type: section_header
+      - id: unknown_subsection_header
+        type: unknown_subsection_header
+      - id: unknown
+        type: u4
+        repeat: expr
+        repeat-expr: section_header.item_count
+      - id: data_subsection_header
+        type: data_subsection_header
+      - id: model_offsets
+        type: u4
+        repeat: expr
+        repeat-expr: section_header.item_count
+      - id: name_subsection
+        type: name_subsection
+        repeat: expr
+        repeat-expr: section_header.item_count
+      - id: model_instance
+        type: model_instance(model_offsets[_index] + _parent.block_start.position)
+        repeat: expr
+        repeat-expr: section_header.item_count
+    types:
+      model_instance:
+        params:
+          - id: offset
+            type: u4
+        instances:
+          model_section:
+            type: model_section
+            pos: offset
+            
   model_section:
     seq:
-      - id: model_section_header
-        type: model_section_header
-      - id: model_section_body
-        type: model_section_body
-        #size: model_section_header.block_len - 4
-  model_section_header:
-    seq:
+      - id: block_start
+        type: pos_cache
       - id: block_len
         type: u4
-  model_section_body:
-    seq:
       - id: extra_data_offset
         type: u4
-      - id: tex_pal_offset_offset
+      - id: material_section_offset
         type: u4
-      - id: display_list_start_offset
+      - id: polygon_section_offset
         type: u4
       - id: display_list_end_offset
         type: u4
@@ -117,7 +106,7 @@ types:
         type: u1
       - id: unknown3
         type: u1
-      - id: mesh_object_count
+      - id: object_count
         type: u1
       - id: material_count
         type: u1
@@ -153,271 +142,140 @@ types:
         type: s2
       - id: bounding_box_depth
         type: s2
-      - id: unknown9
+      - id: runtime_use_data1
         type: u4
-      - id: unknown10
+      - id: runtime_use_data2
         type: u4
-      - id: section_header
-        type: section_header
-      - id: unknown11
-        type: u4
-        repeat: expr
-        repeat-expr: _parent.mesh_object_count
+      - id: block_end
+        type: pos_cache
+        
+    instances:
+      object_def_section:
+        type: object_def_section
+        pos: block_end.position
+      bone_def_section:
+        type: bone_def_section
+        pos: object_def_section.object_def_instance.last.object_def.block_end.position
+      material_def_section:
+        type: material_def_section
+        pos: material_section_offset + block_start.position
+      polygon_def_section:
+        type: polygon_def_section
+        pos: polygon_section_offset + block_start.position
+
+  object_def_section:
+    seq:
       - id: object_def_header
         type: object_def_header
-      - id: bone_def_body
-        type: bone_def_body
-      - id: tex_offset
-        type: u2
-      - id: pal_offset
-        type: u2
-      - id: section_header2
-        type: section_header
-      - id: material_def_header
-        type: material_def_header
-  material_def_header:
-    seq:
-      - id: unknown_subsection_header
-        type: unknown_subsection_header
-      - id: unknown1
-        type: u1
-        repeat: expr
-        repeat-expr: _parent.material_count * 4
-      - id: data_subsection_header
-        type: data_subsection_header
-      - id: material_def_offset
-        type: u4
-        repeat: expr
-        repeat-expr: _parent.material_count
-      - id: name_subsection
-        type: name_subsection
-        repeat: expr
-        repeat-expr: _parent.material_count
-      - id: material_texture_section
-        type: material_texture_section
-      - id: material_palette_section
-        type: material_palette_section
-        
-      - id: unknown2 # probably the texture index for materials
-        type: u1
-        repeat: expr
-        repeat-expr: _parent.material_count
-      - id: unknown3 # probably the palette index for materials
-        type: u1
-        repeat: expr
-        repeat-expr: _parent.material_count
-      - id: unknown4
-        type: u2
-        
-      - id: material_def_list
-        type: material_def_list
-  material_texture_section:
-    seq:
-      - id: section_header
-        type: section_header
-      - id: unknown_subsection_header
-        type: unknown_subsection_header
-      - id: unknown1
-        type: u4
-        repeat: expr
-        repeat-expr: section_header.object_count
-      - id: data_subsection_header
-        type: data_subsection_header
-      - id: texture_def
-        type: texture_def
-        repeat: expr
-        repeat-expr: section_header.object_count
-      - id: name_subsection
-        type: name_subsection
-        repeat: expr
-        repeat-expr: section_header.object_count
-    types:
-      texture_def:
-        seq:
-          - id: matching_data_offset
-            type: u2
-          - id: material_use_count
-            type: u2
-  material_palette_section:
-    seq:
-      - id: section_header
-        type: section_header
-      - id: unknown_subsection_header
-        type: unknown_subsection_header
-      - id: unknown1
-        type: u4
-        repeat: expr
-        repeat-expr: section_header.object_count
-      - id: data_subsection_header
-        type: data_subsection_header
-      - id: palette_def
-        type: palette_def
-        repeat: expr
-        repeat-expr: section_header.object_count
-      - id: name_subsection
-        type: name_subsection
-        repeat: expr
-        repeat-expr: section_header.object_count
-    types:
-      palette_def:
-        seq:
-          - id: matching_data_offset
-            type: u2
-          - id: material_use_count
-            type: u2
-  material_def_list:
-    seq:
-      - id: material_def_instance
-        type: material_def_instance #(_parent.material_def_offset[_index])
-        repeat: expr
-        repeat-expr: _parent._parent.material_count
-  material_def_instance:
-    params:
-      - id: offset
-        type: u4
-    seq:
-      - id: material_def_instance
-        type: material_def_body
-  material_def_body:
-    seq:
-      - id: unknown1 # seems to always be 0x0000, comes at start of block
-        type: u2
-      - id: block_len
-        type: u2
-      - id: diffuse_r #possible red channel diffuse
-        type: b5
-      - id: diffuse_g #possible green channel diffuse
-        type: b5
-      - id: diffuse_b #possible blue channel diffuse
-        type: b5
-      - id: unknown5 #possible vertex color
-        type: b1
-      - id: ambient_r #possible red channel ambient
-        type: b5
-      - id: ambient_g #possible green channel ambient
-        type: b5
-      - id: ambient_b #possible blue channel ambient
-        type: b5
-      - id: unknown9 #possible unused
-        type: b1
-      - id: unknown10_r #possible red channel specular
-        type: b5
-      - id: unknown11_g #possible green channel specular
-        type: b5
-      - id: unknown12_b #possible blue channel specular
-        type: b5
-      - id: spec_shininess #possible specular shininess
-        type: b1
-      - id: unknown14_r #possible red channel emission
-        type: b5
-      - id: unknown15_g #possible green channel emission
-        type: b5
-      - id: unknown16_b #possible blue channel emission
-        type: b5
-      - id: unknown17 #possible unused
-        type: b1
-      - id: unknown_padding
-        type: unknown
-        size: block_len - 12
-  object_def_header:
-    seq:
-      - id: pos_cache1
-        type: pos_cache
-      - id: unknown_subsection_header
-        type: unknown_subsection_header
-      - id: unknown1
-        type: u4
-        repeat: expr
-        repeat-expr: _parent.mesh_object_count
-      - id: data_subsection_header
-        type: data_subsection_header
-      - id: object_def_offset
-        type: u4
-        repeat: expr
-        repeat-expr: _parent.mesh_object_count
-      - id: name_subsection
-        type: name_subsection
-        repeat: expr
-        repeat-expr: _parent.mesh_object_count
-      - id: object_def_list
-        type: object_def_list
-  object_def_list:
-    seq:
       - id: object_def_instance
-        type: object_def_instance(_parent.object_def_offset[_index])
+        type: object_def_instance(object_def_header.object_def_offsets[_index] + object_def_header.block_start.position)
         repeat: expr
-        repeat-expr: _parent._parent.mesh_object_count
-  object_def_instance:
-    params:
-      - id: offset
-        type: u4
-    seq:
-      - id: object_def_instance
-        type: object_def_body
-        #pos: _parent._parent.pos_cache1.position + offset - 4
-  
-  object_def_body:
-    seq:
-      - id: pivot_matrix_type
-        type: b4
-      - id: has_pivot
-        type: b1
-      - id: has_no_scale
-        type: b1
-      - id: has_no_rotation
-        type: b1 
-      - id: has_no_translation
-        type: b1
-      - id: unknown1
-        type: u1
-      - id: unknown2
-        type: u1
-      - id: unknown3
-        type: u1
-      - id: translation_x
-        type: s4
-        if: has_no_translation == false
-      - id: translation_y
-        type: s4
-        if: has_no_translation == false
-      - id: translation_z
-        type: s4
-        if: has_no_translation == false
+        repeat-expr: object_def_header.section_header.item_count
         
-      - id: scale_x
-        type: s4
-        if: has_no_scale == false
-      - id: scale_y
-        type: s4
-        if: has_no_scale == false
-      - id: scale_z
-        type: s4
-        if: has_no_scale == false
-        
-      - id: rotation_a
-        type: s4
-        if: (has_pivot == false) and (has_no_rotation == false)
-      - id: rotation_b
-        type: s4
-        if: (has_pivot == false) and (has_no_rotation == false)
-      - id: rotation_c
-        type: s4
-        if: (has_pivot == false) and (has_no_rotation == false)
-      - id: rotation_d
-        type: s4
-        if: (has_pivot == false) and (has_no_rotation == false)
-      - id: pivot_a
-        type: s2
-        if: has_pivot == true
-      - id: pivot_b
-        type: s2
-        if: has_pivot == true
-  bone_def_body:
+    types:
+      object_def_instance:
+        params:
+          - id: offset
+            type: u4
+        instances:
+          object_def:
+            type: object_def
+            pos: offset
+            
+      object_def_header:
+        seq:
+          - id: block_start
+            type: pos_cache
+          - id: section_header
+            type: section_header
+          - id: pos_cache1
+            type: pos_cache
+          - id: unknown_subsection_header
+            type: unknown_subsection_header
+          - id: unknown9
+            type: u4
+            repeat: expr
+            repeat-expr: section_header.item_count
+          - id: data_subsection_header
+            type: data_subsection_header
+          - id: object_def_offsets
+            type: u4
+            repeat: expr
+            repeat-expr: section_header.item_count
+          - id: name_subsection
+            type: name_subsection
+            repeat: expr
+            repeat-expr: section_header.item_count
+            
+      object_def:
+        seq:
+          - id: pivot_matrix_type
+            type: b4
+          - id: has_pivot
+            type: b1
+          - id: has_no_scale
+            type: b1
+          - id: has_no_rotation
+            type: b1 
+          - id: has_no_translation
+            type: b1
+          - id: unknown1
+            type: u1
+          - id: unknown2
+            type: u1
+          - id: unknown3
+            type: u1
+          - id: translation_x
+            type: fxp_s4(8)
+            if: has_no_translation == false
+          - id: translation_y
+            type: fxp_s4(8)
+            if: has_no_translation == false
+          - id: translation_z
+            type: fxp_s4(8)
+            if: has_no_translation == false
+            
+          - id: scale_x
+            type: fxp_s4(8)
+            if: has_no_scale == false
+          - id: scale_y
+            type: fxp_s4(8)
+            if: has_no_scale == false
+          - id: scale_z
+            type: fxp_s4(8)
+            if: has_no_scale == false
+            
+          - id: rotation_a
+            type: s4
+            if: (has_pivot == false) and (has_no_rotation == false)
+          - id: rotation_b
+            type: fxp_s4(8)
+            if: (has_pivot == false) and (has_no_rotation == false)
+          - id: rotation_c
+            type: fxp_s4(8)
+            if: (has_pivot == false) and (has_no_rotation == false)
+          - id: rotation_d
+            type: fxp_s4(8)
+            if: (has_pivot == false) and (has_no_rotation == false)
+            
+          - id: pivot_a
+            type: s2
+            if: has_pivot == true
+          - id: pivot_b
+            type: s2
+            if: has_pivot == true
+            
+          - id: block_end
+            type: pos_cache
+
+  bone_def_section:
     seq:
       - id: command
         type: command
         repeat: until
         repeat-until: _.command_id == 0x01
+      - id: block_end
+        type: pos_cache
     types:
       command:
         seq:
@@ -450,9 +308,8 @@ types:
             size: 0
       params_0x01: # END OF BONE/SKELETON SECTION
         seq:
-          - id: padding
-            type: unknown
-            size: 3
+          - id: no_value
+            size: 0
       params_0x02:
         seq:
           - id: node_id
@@ -494,7 +351,7 @@ types:
       params_0x09:
         seq:
           - id: unknown1
-            type: unknown
+            type: unknown_u1
             size: 8
       params_0x0b: # BEGIN POLYGON/MATERIAL PAIRING
         seq:
@@ -544,15 +401,429 @@ types:
             type: u1
           - id: restore_id
             type: u1
-  unknown:
+  
+  material_def_section:
     seq:
-      - id: unknown
+      - id: material_def_header
+        type: material_def_header
+      - id: material_def_instance
+        type: material_def_instance(material_def_header.material_def_offsets[_index] + material_def_header.block_start.position)
+        repeat: expr
+        repeat-expr: material_def_header.section_header.item_count
+        
+    types:
+      tex_pal_offset:
+        seq:
+          - id: tex_offset
+            type: u2
+          - id: pal_offset
+            type: u2
+          - id: block_end
+            type: pos_cache
+            
+      material_def_header:
+        seq:
+          - id: block_start
+            type: pos_cache
+          - id: tex_pal_offset
+            type: tex_pal_offset
+          - id: section_header
+            type: section_header
+          - id: unknown_subsection_header
+            type: unknown_subsection_header
+          - id: unknown1
+            type: u4
+            repeat: expr
+            repeat-expr: section_header.item_count
+          - id: data_subsection_header
+            type: data_subsection_header
+          - id: material_def_offsets
+            type: u4
+            repeat: expr
+            repeat-expr: section_header.item_count
+          - id: name_subsection
+            type: name_subsection
+            repeat: expr
+            repeat-expr: section_header.item_count
+    
+          - id: material_texture_section
+            type: material_texture_section
+          - id: material_palette_section
+            type: material_palette_section
+    
+          - id: unknown2 # probably the texture index for materials
+            type: u1
+            repeat: expr
+            repeat-expr: section_header.item_count
+          - id: unknown3 # probably the palette index for materials
+            type: u1
+            repeat: expr
+            repeat-expr: section_header.item_count
+          - id: unknown4
+            type: u2
+
+      material_def_instance:
+        params:
+          - id: offset
+            type: u4
+        instances:
+          material_def:
+            type: material_def
+            pos: offset
+      
+      material_def:
+        seq:
+          - id: unknown1 # seems to always be 0x0000, comes at start of block
+            type: u2
+          - id: block_len
+            type: u2
+          - id: diffuse_r #possible red channel diffuse
+            type: b5
+          - id: diffuse_g #possible green channel diffuse
+            type: b5
+          - id: diffuse_b #possible blue channel diffuse
+            type: b5
+          - id: unknown5 #possible vertex color
+            type: b1
+          - id: ambient_r #possible red channel ambient
+            type: b5
+          - id: ambient_g #possible green channel ambient
+            type: b5
+          - id: ambient_b #possible blue channel ambient
+            type: b5
+          - id: unknown9 #possible unused
+            type: b1
+          - id: unknown10_r #possible red channel specular
+            type: b5
+          - id: unknown11_g #possible green channel specular
+            type: b5
+          - id: unknown12_b #possible blue channel specular
+            type: b5
+          - id: spec_shininess #possible specular shininess
+            type: b1
+          - id: unknown14_r #possible red channel emission
+            type: b5
+          - id: unknown15_g #possible green channel emission
+            type: b5
+          - id: unknown16_b #possible blue channel emission
+            type: b5
+          - id: unknown17 #possible unused
+            type: b1
+          - id: unknown_padding
+            type: unknown_u1
+            size: block_len - 12
+    
+      material_texture_section:
+        seq:
+          - id: section_header
+            type: section_header
+          - id: unknown_subsection_header
+            type: unknown_subsection_header
+          - id: unknown1
+            type: u4
+            repeat: expr
+            repeat-expr: section_header.item_count
+          - id: data_subsection_header
+            type: data_subsection_header
+          - id: texture_def
+            type: texture_def
+            repeat: expr
+            repeat-expr: section_header.item_count
+          - id: name_subsection
+            type: name_subsection
+            repeat: expr
+            repeat-expr: section_header.item_count
+        types:
+          texture_def:
+            seq:
+              - id: matching_data_offset
+                type: u2
+              - id: material_use_count
+                type: u2
+        
+      material_palette_section:
+        seq:
+          - id: section_header
+            type: section_header
+          - id: unknown_subsection_header
+            type: unknown_subsection_header
+          - id: unknown1
+            type: u4
+            repeat: expr
+            repeat-expr: section_header.item_count
+          - id: data_subsection_header
+            type: data_subsection_header
+          - id: palette_def
+            type: palette_def
+            repeat: expr
+            repeat-expr: section_header.item_count
+          - id: name_subsection
+            type: name_subsection
+            repeat: expr
+            repeat-expr: section_header.item_count
+        types:
+          palette_def:
+            seq:
+              - id: matching_data_offset
+                type: u2
+              - id: material_use_count
+                type: u2
+  
+  polygon_def_section:
+    seq:
+      - id: polygon_def_header
+        type: polygon_def_header
+      - id: polygon_def_start
+        type: pos_cache
+      - id: polygon_def_instance
+        type: polygon_def_instance(polygon_def_header.polygon_def_offsets[_index] + polygon_def_header.block_start.position)
+        repeat: expr
+        repeat-expr: polygon_def_header.section_header.item_count
+      - id: display_list_instance
+        type: display_list_instance(polygon_def_instance[_index].polygon_def.display_list_offset + polygon_def_start.position, polygon_def_instance[_index].polygon_def.display_list_size / 8)
+        repeat: expr
+        repeat-expr: polygon_def_header.section_header.item_count
+        
+    types:
+      polygon_def_header:
+        seq:
+          - id: block_start
+            type: pos_cache
+          - id: section_header
+            type: section_header
+          - id: unknown_subsection_header
+            type: unknown_subsection_header
+          - id: unknown9
+            type: u4
+            repeat: expr
+            repeat-expr: section_header.item_count
+          - id: data_subsection_header
+            type: data_subsection_header
+          - id: polygon_def_offsets
+            type: u4
+            repeat: expr
+            repeat-expr: section_header.item_count
+          - id: name_subsection
+            type: name_subsection
+            repeat: expr
+            repeat-expr: section_header.item_count
+            
+      polygon_def_instance:
+        params:
+          - id: offset
+            type: u4
+        instances:
+          polygon_def:
+            type: polygon_def
+            pos: offset
+            
+      polygon_def:
+        seq:
+          - id: unknown1
+            type: u4
+          - id: unknown2
+            type: u4
+          - id: display_list_offset
+            type: u4
+          - id: display_list_size
+            type: u4
+      
+      display_list_instance:
+        params:
+          - id: offset
+            type: u4
+          - id: list_size
+            type: u4
+        instances:
+          display_list:
+            type: display_list(list_size)
+            pos: offset
+          #  size: list_size
+            
+      display_list:
+        params:
+          - id: list_size
+            type: u4
+        seq:
+          - id: command
+            type: packed_geometry_cmd
+            repeat: until
+            repeat-until: _.start_pos.position >= _parent.offset + list_size - 32
+        types:
+          packed_geometry_cmd:
+            seq:
+              - id: start_pos
+                type: pos_cache
+              - id: cmd_1
+                type: u1
+              - id: cmd_2
+                type: u1
+              - id: cmd_3
+                type: u1
+              - id: cmd_4
+                type: u1
+              - id: params_1
+                type: param_switch(cmd_1)
+              - id: params_2
+                type: param_switch(cmd_2)
+              - id: params_3
+                type: param_switch(cmd_3)
+              - id: params_4
+                type: param_switch(cmd_4)
+                    
+          param_switch:
+            params:
+              - id: command
+                type: u1
+            seq:
+              - id: param_list
+                type:
+                  switch-on: command
+                  cases:
+                    0x21: params_0x21
+                    0x22: params_0x22
+                    0x23: params_0x23
+                    0x40: params_0x40
+                    0x41: params_0x41
+                    _: params_0x00
+          
+          params_0x40: # start of vertex list
+            seq:
+              - id: primitive_type
+                type: b2
+              - id: unused1
+                type: b30
+                
+          params_0x41: # end of vertex list
+            seq:
+              - id: padding
+                type: u4
+                
+          params_0x00: # end of display list
+            seq:
+              - id: empty
+                size: 0
+                
+          params_0x21: # set normal vector
+            seq:
+              - id: padding
+                type: b2
+                # convert each b10 to s2 and divide by 512.0
+              - id: normal_z
+                type: b10
+              - id: normal_y
+                type: b10
+              - id: normal_x
+                type: b10
+                
+          params_0x22: # set texture coordinates
+            seq:
+              - id: u_coordinate
+                type: fxp_s2(10)
+              - id: v_coordinate
+                type: fxp_s2(10)
+          
+          params_0x23: # set vertex xyz vector (W)
+            seq:
+              - id: vertex_x
+                type: fxp_s2(12)
+              - id: vertex_y
+                type: fxp_s2(12)
+              - id: vertex_z
+                type: fxp_s2(12)
+              - id: padding
+                type: u2
+  tex0_block:
+    seq:
+      - id: section_header
+        type: section_header
+
+  section_header:
+    seq:
+      - id: dummy_zero
+        type: u1 #dummy zero
+      - id: item_count
+        type: u1
+      - id: header_len
+        type: u2
+
+  unknown_subsection_header:
+    seq:
+      - id: subheader_len
+        type: u2
+      - id: subsection_len
+        type: u2
+      - id: unknown_constant1
+        contents: [0x7f, 0x01, 0x00, 0x00]
+
+  data_subsection_header:
+    seq:
+      - id: data_entry_size
+        type: u2
+      - id: subsection_len
+        type: u2
+
+  name_subsection: #no header for this one
+    seq:
+      - id: name
+        type: str
+        size: 16
+
+  block_header:
+    seq:
+      - id: block_header
+        type: str
+        size: 4
+      - id: block_len
+        type: u4
+
+  unknown_u1:
+    seq:
+      - id: unknown_u1
         type: u1
         repeat: eos
+  
+  fxp_s4:
+    params:
+    - id: precision
+      type: u4
+    seq:
+      - id: fxp
+        type: s4
+    instances:
+      real_value:
+        value: (fxp-1) / (( 1 << precision ) * 1.0)
+
+  fxp_s2:
+    params:
+    - id: precision
+      type: u4
+    seq:
+      - id: fxp
+        type: s2
+    instances:
+      real_value:
+        value: fxp / (( 1 << precision ) * 1.0)
+
+  fxp_b10:
+    params:
+    - id: precision
+      type: u4
+    seq:
+      - id: sign
+        type: b1
+      - id: fxp
+        type: b9
+    instances:
+      bitmask:
+        value: 0x03FF
+      real_value:
+        value: sign ? (0xFFFF - (fxp).as<s2>) : fxp
+
   pos_cache:
     instances:
       position:
-        value: _io.pos
+        value: _root._io.pos
     seq:
       - size: 0
         if: position == 0
