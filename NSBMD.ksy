@@ -580,7 +580,7 @@ types:
         repeat: expr
         repeat-expr: polygon_def_header.section_header.item_count
       - id: display_list_instance
-        type: display_list_instance(polygon_def_instance[_index].polygon_def.display_list_offset + polygon_def_start.position, polygon_def_instance[_index].polygon_def.display_list_size / 8)
+        type: display_list_instance(polygon_def_instance[_index].polygon_def.display_list_offset + polygon_def_instance[_index].polygon_def.polygon_def_start.position, polygon_def_instance[_index].polygon_def.display_list_size)
         repeat: expr
         repeat-expr: polygon_def_header.section_header.item_count
         
@@ -619,6 +619,8 @@ types:
             
       polygon_def:
         seq:
+          - id: polygon_def_start
+            type: pos_cache
           - id: unknown1
             type: u4
           - id: unknown2
@@ -645,10 +647,12 @@ types:
           - id: list_size
             type: u4
         seq:
+          - id: start_pos
+            type: pos_cache
           - id: command
             type: packed_geometry_cmd
             repeat: until
-            repeat-until: _.start_pos.position >= _parent.offset + list_size - 32
+            repeat-until: _.start_pos.position > _parent.offset + list_size
         types:
           packed_geometry_cmd:
             seq:
@@ -670,7 +674,8 @@ types:
                 type: param_switch(cmd_3)
               - id: params_4
                 type: param_switch(cmd_4)
-                    
+              - id: end_pos
+                type: pos_cache
           param_switch:
             params:
               - id: command
